@@ -1,4 +1,6 @@
+from core.models import Signal
 import requests
+import sys, os
 
 BASE_URL = "https://api.dexscreener.com"
 
@@ -19,14 +21,26 @@ def filter_pairs(pairs, min_liquidity=50_000, min_volume=100_000):
     return sorted(good, key=lambda p: p["volume"]["h24"], reverse=True)
 
 
+def pairs_to_signals(pairs):
+    signals = []
+    for p in pairs:
+        volume = p["volume"]["h24"]
+        liquidity = p["liquidity"]["usd"]
+        change = (p.get("priceChange") or {}).get("h24") or 0
+
+        # simple starter score: volume relative to the liquidity, capped at 100
+        score = min(100, (volume / liquidity) * 20)
+        signals.append(Signal(
+            source="dexscreener",
+            token=p["baseToken"]["symbol"],
+            chain=round(score, 1),
+            reason=f"vol/liq {volume / liquidity:.1f}x, 24h change {change}%",
+            details=p
+        ))
+    return sorted(signals, key=lambda s: s.score, reverse=True) 
+
+
 if __name__ == "__main__":
     pairs = filter_pairs(search_pairs("PEPE"))
-    for p in pairs[:10]:
-        print(
-            p["baseToken"]["symbol"],
-            p["chainId"],
-            p.get("priceUsd"),
-            f"vol24h=${p['volume']['h24']:,.0f}",
-            f"liq=${p['liquidity']['usd']:,.0f}",
-            f"chg24h={p.get('priceChange', {}).get('h24')}%",
-        )
+    for s in pairs_to_signals(pairs)[:10]:
+        print(s.token, s.chain, s.score, s.reason)
