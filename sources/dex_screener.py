@@ -5,6 +5,7 @@ import requests
 import argparse
 from core.models import Signal
 from core.scorer import score_pair
+from core.socials import extract_socials
 from storage.db import save_signals
 
 BASE_URL = "https://api.dexscreener.com"
@@ -42,7 +43,7 @@ def pairs_to_signals(pairs):
             chain=p["chainId"],
             score=score,
             reason=reason,
-            details=p,
+            details={**p, "socials": extract_socials(p)}
         ))
     return sorted(signals, key=lambda s: s.score, reverse=True)
 
@@ -102,3 +103,7 @@ if __name__ == "__main__":
         addr = s.details["baseToken"]["address"].lower()
         tags = ",".join(sorted(tag_lookup.get((s.chain, addr), []))) or "?"
         print(f"[{tags}]", s.token, s.chain, s.score, s.reason)
+
+        socials = s.details.get("socials", {})
+        for kind, url in socials.items():
+            print(f"      {kind}: {url}")
