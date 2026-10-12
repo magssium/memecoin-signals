@@ -2,9 +2,17 @@ import sys, os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) 
 
 import requests
+import argparse
 from core.models import Signal
+from storage.db import save_signals
 
 BASE_URL = "https://api.dexscreener.com"
+ENDPOINTS = {
+    "profile": "/token-profiles/latest/v1",
+    "boosted": "/token-boosts/latest/v1",
+    "top_boosted": "/token-boosts/top/v1",
+    "takeover": "/community-takeovers/latest/v1",
+}
 
 
 def search_pairs(query: str):
@@ -47,7 +55,58 @@ def pairs_to_signals(pairs):
     return sorted(signals, key=lambda s: s.score, reverse=True) 
 
 
+def get_new_tokens(chain=None):
+    """Tokens from several DEX Screener lists, tagged by origin."""
+    found = {}
+    for label, path in ENDPOINTS.items():
+        try:
+            r = requests.get(BASE_URL + path, timeout=10)
+            r.raise_for_status()
+            items = r.json()
+        except Exception as e:
+            print(f"skipped {label}: {e}")
+            continue
+        for t in items:
+            if "chainId" not in t or "tokenAddress" not in t:
+                continue
+            if chain and t["chainId"] != chain:
+                continue
+            key = (t["chainId"], t["tokenAddress"].lower())
+            entry = found.setdefault(key, {**t, "tags": set()})
+            entry["tags"].add(label)
+    return list(found.values())
+
+
+def get_pairs_for_tokens(tokens):
+    addresses = [t["tokenAddress"] for t in tokens]
+    pairs = []
+    for i in range(0, len(addresses), 30):
+        chunk = ",".join(addresses[i:i + 30])
+        r = requests.get(f"{BASE_URL}/latest/dex/tokens/{chunk}", timeout=10)
+        r.raise_for_status()
+        pairs.extend(r.json().get("pairs") or [])
+    return pairs
+
+
 if __name__ == "__main__":
-    pairs = filter_pairs(search_pairs("BONK"))
-    for s in pairs_to_signals(pairs)[:10]:
-        print(s.token, s.chain, s.score, s.reason)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--limit", type=int, default=15, help="how many results to show")
+    parser.add_argument("--chain", default=None, help="e.g. solana, ethereum, base")
+    parser.add_argument("--min-liq", type=float, default=5_000)
+    parser.add_argument("--min-vol", type=float, default=10_000)
+    args = parser.parse_args()
+
+    tokens = get_new_tokens(chain=args.chain)
+    tag_lookup = {(t["chainId"], t["tokenAddress"].lower()): t["tags"] for t in tokens}
+    print(f"Found {len(tokens)} tokens")
+
+    pairs = get_pairs_for_tokens(tokens)
+    pairs = filter_pairs(pairs, min_liquidity=args.min_liq, min_volume=args.min_vol)
+    signals = pairs_to_signals(pairs)
+    saved = save_signals(signals)
+    print(f"Saved {saved} signals to database")
+
+    for s in signals[:args.limit]:
+        addr = s.details["baseToken"]["address"].lower()
+        tags = ",".join(sorted(tag_lookup.get((s.chain, addr), []))) or "?"
+        print(f"[{tags}]", s.token, s.chain, s.score, s.reason)
