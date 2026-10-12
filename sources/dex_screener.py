@@ -1,6 +1,8 @@
-from core.models import Signal
-import requests
 import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) 
+
+import requests
+from core.models import Signal
 
 BASE_URL = "https://api.dexscreener.com"
 
@@ -33,7 +35,8 @@ def pairs_to_signals(pairs):
         signals.append(Signal(
             source="dexscreener",
             token=p["baseToken"]["symbol"],
-            chain=round(score, 1),
+            chain=p["chainId"],
+            score=round(score, 1),
             reason=f"vol/liq {volume / liquidity:.1f}x, 24h change {change}%",
             details=p
         ))
