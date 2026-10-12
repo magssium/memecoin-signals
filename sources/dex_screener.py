@@ -30,6 +30,10 @@ def pairs_to_signals(pairs):
         liquidity = p["liquidity"]["usd"]
         change = (p.get("priceChange") or {}).get("h24") or 0
 
+        txns = (p.get("txns") or {}).get("h24") or {}
+        buys = txns.get("buys", 0)
+        sells = txns.get("sells", 0)
+
         # simple starter score: volume relative to the liquidity, capped at 100
         score = min(100, (volume / liquidity) * 20)
         signals.append(Signal(
@@ -37,13 +41,13 @@ def pairs_to_signals(pairs):
             token=p["baseToken"]["symbol"],
             chain=p["chainId"],
             score=round(score, 1),
-            reason=f"vol/liq {volume / liquidity:.1f}x, 24h change {change}%",
+            reason=f"vol/liq {volume/liquidity:.1f}x, 24h change {change}%, buys {buys} / sells {sells}",
             details=p
         ))
     return sorted(signals, key=lambda s: s.score, reverse=True) 
 
 
 if __name__ == "__main__":
-    pairs = filter_pairs(search_pairs("PEPE"))
+    pairs = filter_pairs(search_pairs("BONK"))
     for s in pairs_to_signals(pairs)[:10]:
         print(s.token, s.chain, s.score, s.reason)
