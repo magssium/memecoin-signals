@@ -4,6 +4,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import requests
 import argparse
 from core.models import Signal
+from core.scorer import score_pair
 from storage.db import save_signals
 
 BASE_URL = "https://api.dexscreener.com"
@@ -34,25 +35,16 @@ def filter_pairs(pairs, min_liquidity=50_000, min_volume=100_000):
 def pairs_to_signals(pairs):
     signals = []
     for p in pairs:
-        volume = p["volume"]["h24"]
-        liquidity = p["liquidity"]["usd"]
-        change = (p.get("priceChange") or {}).get("h24") or 0
-
-        txns = (p.get("txns") or {}).get("h24") or {}
-        buys = txns.get("buys", 0)
-        sells = txns.get("sells", 0)
-
-        # simple starter score: volume relative to the liquidity, capped at 100
-        score = min(100, (volume / liquidity) * 20)
+        score, reason = score_pair(p)
         signals.append(Signal(
             source="dexscreener",
             token=p["baseToken"]["symbol"],
             chain=p["chainId"],
-            score=round(score, 1),
-            reason=f"vol/liq {volume/liquidity:.1f}x, 24h change {change}%, buys {buys} / sells {sells}",
-            details=p
+            score=score,
+            reason=reason,
+            details=p,
         ))
-    return sorted(signals, key=lambda s: s.score, reverse=True) 
+    return sorted(signals, key=lambda s: s.score, reverse=True)
 
 
 def get_new_tokens(chain=None):
